@@ -1,0 +1,43 @@
+{
+  "name": "dsh-anysearch-fallback",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "让 web_fetch 在上游 AnySearch 抽取失败（HTTP 422）时自动降级为受约束的浏览器 UA 直抓；零运行时依赖，只读 ctx.web.fetchProviders，不改任何 DSH 私有字段",
+  "license": "MIT",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./lib/direct-fetch.mjs": "./lib/direct-fetch.mjs",
+    "./lib/ssrf-guard.mjs": "./lib/ssrf-guard.mjs",
+    "./lib/html-text.mjs": "./lib/html-text.mjs",
+    "./lib/fallback-provider.mjs": "./lib/fallback-provider.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "lib/",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "web-fetch",
+    "fallback",
+    "anysearch"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

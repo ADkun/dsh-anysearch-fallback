@@ -1,0 +1,22 @@
+# dsh-anysearch-fallback 的 bundle 层。
+#
+# 两段，形状照抄官方 anysearch 插件的 patch：
+#   1. `- id: web` 覆盖 web 服务的 provider 选择。
+#      ⚠ 关键：patch 算法对 `config` 是**整体替换、不做深合并**
+#      （cordis-plugin-include/lib/index.js:99-102 逐键 `target[key] = value`）。
+#      所以这里必须把 searchProvider 一起原样写上——只写 fetchProvider 会把
+#      搜索侧的 provider 配置从 web 服务上抹掉。值取自官方 bundle 的同一份配置，
+#      没有任何行为变化。
+#   2. `- insert` 注册本插件（顶层＝global 层）。行 `id` 必须等于 index.mjs 的
+#      `export const name`。
+- id: web
+  config:
+    searchProvider: anysearch
+    fetchProvider: anysearch-fallback
+
+- insert:
+    - id: dsh-anysearch-fallback
+      name: dsh-anysearch-fallback
+      config:
+        upstreamProviderId: anysearch
+        timeoutMs: 15000
