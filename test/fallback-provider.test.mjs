@@ -140,6 +140,33 @@ test('a missing upstream provider warns and degrades instead of failing', async 
     assert.equal(logger.lines.some(([level, line]) => level === 'warn' && line.includes('is not registered')), true);
 });
 
+test('shouldFallback ignores generic status fields and prose mentions of extract_failed', () => {
+    assert.equal(shouldFallback(Object.assign(new Error('some other failure'), { statusCode: 422 })), false, 'a generic statusCode must not trigger the fallback');
+    assert.equal(shouldFallback(Object.assign(new Error('some other failure'), { status: 422 })), false, 'a generic status must not trigger the fallback');
+    assert.equal(shouldFallback(new Error('readme mentions extract_failed in prose')), false, 'the token in prose must not trigger the fallback');
+    assert.equal(
+        shouldFallback(Object.assign(new Error('wrapper'), { cause: Object.assign(new Error('inner'), { statusCode: 422 }) })),
+        false,
+        'a generic field deeper in the cause chain must not trigger the fallback either',
+    );
+    assert.equal(shouldFallback(Object.assign(new Error('boom'), { errorCode: 'extract_failed' })), true, 'the errorCode field VALUE still triggers');
+    assert.equal(shouldFallback(Object.assign(new Error('boom'), { httpStatus: 422 })), true);
+    assert.equal(shouldFallback(Object.assign(new Error('boom'), { httpStatus: 422, statusCode: 200 })), true);
+});
+
+test('an unrelated error carrying only statusCode 422 is rethrown and the direct fetch stays idle', async () => {
+    const error = Object.assign(new Error('some other failure'), { statusCode: 422 });
+    const { provider, directFetch } = providerFor(error, WebFetchResultShape);
+    await assert.rejects(
+        () => provider.fetch({ url: 'https://example.com/' }, undefined),
+        (thrown) => {
+            assert.equal(thrown, error, 'the very same error object must surface, not a wrapper');
+            return true;
+        },
+    );
+    assert.equal(directFetch.calls.length, 0, 'the direct fetch must stay idle for a generic statusCode');
+});
+
 test('provider identity and availability stay as the seam requires', () => {
     const provider = new FallbackFetchProvider({ ctx: fakeContext(), directFetch: countingDirectFetch() });
     assert.equal(provider.id, FALLBACK_PROVIDER_ID);

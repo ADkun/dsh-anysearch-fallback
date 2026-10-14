@@ -37,7 +37,7 @@ ctx.web 注册的 provider 链：
 | 项目 | 取值 |
 | --- | --- |
 | provider id | `anysearch-fallback`（由本插件的 `- id: web` 覆盖把 `fetchProvider` 指到它；上游仍是官方 `anysearch`） |
-| 触发降级 | 仅 HTTP 422 或消息含 `Unable to extract content from the URL.` |
+| 触发降级 | 仅：`httpStatus === 422`（上游真实字段）／`errorCode` 字段值 `extract_failed`／消息含那句 `Unable to extract content from the URL.`。**按字段值判，不按子串判** —— 无关错误里出现 `statusCode: 422` 或文本里提到 `extract_failed` 都不会触发 |
 | 不降级 | 401 / 402 / 403 / 429 / 超时 / 网络错误 / 非 JSON 响应 |
 | 协议白名单 | 仅 `http:` / `https:`（`file:` / `data:` / `ftp:` / `blob:` 等拒绝） |
 | 内网拒绝 | `localhost` / `*.localhost` / `*.local` / `.internal`；IPv4 `0.0.0.0`、`127/8`、`10/8`、`172.16/12`、`192.168/16`、`169.254/16`、`100.64/10`；IPv6 `::1`、`fc00::/7`、`fe80::/10`；IPv4-mapped IPv6（`::ffff:127.0.0.1`） |
@@ -76,6 +76,7 @@ npm test            # 离线单测：49 通过 / 1 跳过（联网用例默认�
 
 - **DNS rebinding 未彻底防**：只做字面 IP / 主机名判定，**未**在 DNS 解析后再核一次解析到的 IP；解析到内网地址的域名仍可能穿过。
   *(并不矛盾：`dsh-web` 自带的 `dsh-web-fetch-http` 用 `ipaddr.js` + undici pinned agent 做了这套地址钉扎；本插件刻意零依赖，故未复刻。)*
+- **带 userinfo 的 URL 会被拒绝**：`http://user:pw@example.com/`（只给用户名也算）一律以 `WEB_BLOCKED_URL` 拒掉，错误消息里点名 userinfo；**不做静默剥离** —— 用户显式给了带凭证的 URL 就明确报错，比悄悄改写更可预测。
 - **保守拒绝**：`168.63/16`、`198.18/15`、`192.0.0/24` 等非公网段被判为内网并拒绝，宁可误拒。
 - **提取质量**：朴素 HTML 降噪（去 script/style、取标题、解实体、折叠空白），质量低于 AnySearch 的正文清洗；结果顶部有降级标记，便于人工/模型识别。
 - **不做重试**：无论上游还是直抓都不重试。
@@ -97,6 +98,7 @@ MIT
 - Success path unchanged, field for field.
 - 401 / 402 / 403 / 429 / timeouts / network errors are never masked — they surface exactly as before.
 - Only `http:`/`https:`; localhost, private, link-local, CGNAT and IPv4-mapped IPv6 targets are refused.
+- A URL carrying userinfo (`user:pw@host`) is refused as `WEB_BLOCKED_URL` and named as such — never silently stripped.
 - Hard 5 MB byte cap read as a stream (`response.body`), never `response.text()`; character cap matches DSH's tool layer.
 - 15 s own timeout chained to the upstream abort signal.
 - Fixed desktop Chrome UA plus `accept`/`accept-language`; no Authorization, Cookie, Referer; no TLS bypass; no disk cache.

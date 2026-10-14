@@ -169,6 +169,32 @@ test('a declared Content-Length over the cap is refused before reading', async (
     assert.equal(response.reads, 0);
 });
 
+test('a userinfo URL is refused before any request and names the reason', async () => {
+    let calls = 0;
+    const fetchImpl = async () => {
+        calls += 1;
+        return fakeResponse({ chunks: [new TextEncoder().encode('<title>x</title>never')] });
+    };
+    for (const url of ['http://user:pw@example.com/', 'http://user@example.com/', 'https://user:pw@example.com/p?q=1']) {
+        await assert.rejects(
+            () => fallbackFetchDirect(url, { fetchImpl, resolver: publicResolver }),
+            (error) => {
+                assert.equal(error.code, 'WEB_BLOCKED_URL', url);
+                assert.match(error.message, /userinfo/, `${url} must be refused by name, never silently stripped`);
+                return true;
+            },
+            `${url} reached the network`,
+        );
+    }
+    assert.equal(calls, 0, 'the stub fetch must never be called for a userinfo URL');
+});
+
+test('an "@" inside a path or query is not userinfo and stays usable', async () => {
+    const fetchImpl = async () => fakeResponse({ chunks: [new TextEncoder().encode('<title>ok</title>body')] });
+    const result = await fallbackFetchDirect('https://example.com/?email=a@b.com', { fetchImpl, resolver: publicResolver });
+    assert.equal(result.statusCode, 200);
+});
+
 test('the rendered body is cut at the character cap and flagged as truncated', async () => {
     const html = `<title>big</title><p>${'y'.repeat(MAX_BODY_CHARS + 5_000)}</p>`;
     const fetchImpl = async () => fakeResponse({ chunks: [new TextEncoder().encode(html)] });
