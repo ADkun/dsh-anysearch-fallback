@@ -17,7 +17,7 @@ DSH 的 `web_fetch` 走 AnySearch 的 `/v1/extract`。有些页面（`openai.com
 
 ```
 ctx.web 注册的 provider 链：
-  anysearch-fallback (provider id: anysearch)   ← web_fetch 选中它
+  anysearch-fallback (provider id: anysearch-fallback)   ← web_fetch 选中它
         │
         ├─ 代理到官方 AnySearch provider 的 extract
         │     ├─ 成功 → 原样返回（逐字段不变）
@@ -28,7 +28,7 @@ ctx.web 注册的 provider 链：
               → 返回带标记的纯文本（正文顶部写入降级标记，模型一眼可辨）
 ```
 
-- 本插件**不修改**官方 `@anysearch/anysearch-dsh` 的任何文件，也不改 DSH 私有字段；它只是把自己注册成同 id 的 fetch provider，内部再调官方 provider。
+- 本插件**不修改**官方 `@anysearch/anysearch-dsh` 的任何文件，也不改 DSH 私有字段；它以自己的 id `anysearch-fallback` 注册 provider，内部再按 id 调官方 `anysearch` provider。
 - 官方插件升级/重装对本插件**无影响**（若官方改了 provider id，需要同步改 `index.mjs` 里的 `UPSTREAM_PROVIDER_ID`）。
 - 兜底失败时，抛出的错误里同时带上「上游原始错误」与「直抓失败原因」+ 一句可行动提示，两侧信息都不吞。
 
@@ -36,7 +36,7 @@ ctx.web 注册的 provider 链：
 
 | 项目 | 取值 |
 | --- | --- |
-| provider id | `anysearch`（与原 provider 同 id，web_fetch 无需改配置） |
+| provider id | `anysearch-fallback`（由本插件的 `- id: web` 覆盖把 `fetchProvider` 指到它；上游仍是官方 `anysearch`） |
 | 触发降级 | 仅 HTTP 422 或消息含 `Unable to extract content from the URL.` |
 | 不降级 | 401 / 402 / 403 / 429 / 超时 / 网络错误 / 非 JSON 响应 |
 | 协议白名单 | 仅 `http:` / `https:`（`file:` / `data:` / `ftp:` / `blob:` 等拒绝） |
@@ -56,11 +56,13 @@ ctx.web 注册的 provider 链：
 # 1) 把本目录放到 <DSH_HOME>/plugins/dsh-anysearch-fallback/
 # 2) 在 profile 的 package.json 里加依赖（相对路径写法）
 #    "dsh-anysearch-fallback": "file:C:/Users/you/.dsh/plugins/dsh-anysearch-fallback"
-# 3) 把它列进 profile 的 dsh.profile.bundles
-# 4) 重启 DSH（或新开一个 Agent 会话）
+# 3) 把它追加到 profile 的 dsh.profile.bundles 末尾
+#    （放最后 = 它的 `- id: web` 覆盖在官方 anysearch 之后生效）
+# 4) 在 profile 的 node_modules 下建同名入口（本机既有形状：真目录 + 硬链接）
+# 5) 重启 DSH —— 新开一个对话不够，profile 的配置树是启动时组合的
 ```
 
-本插件的 `cordis.patch.yml` 会 `insert` 自己的 bundle（id `dsh-anysearch-fallback`），并覆盖 web 服务的 `fetchProvider` 为 `anysearch`。具体层内覆盖请按你的 profile 现状调整。
+本插件的 `cordis.patch.yml` 会 `insert` 自己的 bundle（id `dsh-anysearch-fallback`），并把 web 服务的 `fetchProvider` 覆盖为 `anysearch-fallback`（`searchProvider` 必须一起原样写上——patch 对 `config` 是整体替换、不深合并）。具体层内覆盖请按你的 profile 现状调整。
 
 ### 测试
 
@@ -88,7 +90,7 @@ MIT
 
 ## English
 
-**Problem.** `web_fetch` goes through AnySearch `/v1/extract`; for some pages the upstream answers **HTTP 422 `extract_failed`** and the whole fetch call fails. This plugin steps in only there: it registers itself as the `anysearch` fetch provider, delegates to the official provider first, and **only on 422** degrades to a direct fetch.
+**Problem.** `web_fetch` goes through AnySearch `/v1/extract`; for some pages the upstream answers **HTTP 422 `extract_failed`** and the whole fetch call fails. This plugin steps in only there: it registers its own `anysearch-fallback` fetch provider, points the web service at it, delegates to the official `anysearch` provider first, and **only on 422** degrades to a direct fetch.
 
 **Guarantees.**
 
