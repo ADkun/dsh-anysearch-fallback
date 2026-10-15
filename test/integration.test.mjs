@@ -156,8 +156,9 @@ test('live: an upstream HTTP 422 degrades to a real direct fetch and returns mar
     assert.equal(result.body.content.startsWith(FALLBACK_MARKER), true, 'the degraded result must be labelled');
     assert.equal(result.body.content.length > FALLBACK_MARKER.length + 50, true, 'the fallback must return real body text');
     assert.equal(typeof result.truncated, 'boolean');
-    const failures = logger.lines.filter(([level]) => level === 'warn' || level === 'error');
-    assert.deepEqual(failures, [], 'a successful fallback must not log a warning');
+    const warns = logger.lines.filter(([level]) => level === 'warn' || level === 'error');
+    assert.equal(warns.length, 1, `a degrade logs exactly one warn line, got ${JSON.stringify(warns)}`);
+    assert.match(warns[0][1], /degrading to a direct fetch/, 'the warn names the degrade and the upstream cause');
     console.log(`[integration] ${FALLBACK_PROVIDER_ID} upstream=422 -> direct fetch HTTP ${result.statusCode}, ${result.body.content.length} chars, truncated=${result.truncated}`);
 });
 
@@ -168,7 +169,10 @@ test('live: the direct fallback returns readable text for a public page', async 
         return;
     }
     const result = probe.result;
-    assert.equal(result.body.content.split('\n')[0], FALLBACK_MARKER);
+    const firstLine = result.body.content.split('\n')[0];
+    assert.equal(firstLine.startsWith(FALLBACK_MARKER), true, 'the marker line must lead the body');
+    assert.match(firstLine, /上游抽取失败（HTTP 422）/, 'the upstream status is named');
+    assert.match(firstLine, /以下为未经 AnySearch 清洗的直抓原文/, 'a 2xx direct fetch still says the text is uncleaned');
     const head = result.body.content.split('\n').slice(0, 6).join('\n');
     console.log(`[integration] direct fetch of ${result.url} -> HTTP ${result.statusCode}, ${result.body.content.length} chars\n${head}\n...`);
 });

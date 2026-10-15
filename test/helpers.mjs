@@ -13,6 +13,7 @@ export function upstreamError(message, options = {}) {
     if (options.httpStatus !== undefined) error.httpStatus = options.httpStatus;
     if (options.status !== undefined) error.status = options.status;
     if (options.errorCode !== undefined) error.errorCode = options.errorCode;
+    if (options.code !== undefined) error.code = options.code;
     if (options.kind !== undefined) error.kind = options.kind;
     return error;
 }

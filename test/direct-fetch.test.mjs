@@ -16,6 +16,7 @@ import {
     MAX_BODY_CHARS,
     MAX_RESPONSE_BYTES,
     buildFallbackContent,
+    buildFallbackMarker,
     fallbackFetchDirect,
     readCappedBody,
 } from '../lib/direct-fetch.mjs';
@@ -95,7 +96,9 @@ test('a normal HTML page is reduced to marked text with a real title and status'
     assert.equal(result.truncated, false);
     assert.equal(result.url, 'https://example.com/page');
     assert.equal(result.body.kind, 'text');
-    assert.equal(result.body.content.split('\n')[0], FALLBACK_MARKER);
+    assert.equal(result.body.content.split('\n')[0], buildFallbackMarker({ statusCode: 200, hasBody: true }));
+    assert.equal(result.body.content.startsWith(FALLBACK_MARKER), true);
+    assert.match(result.body.content.split('\n')[0], /以下为未经 AnySearch 清洗的直抓原文/);
     assert.match(result.body.content, /\[title\] Example & Friends/);
     assert.match(result.body.content, /Hello/);
     assert.match(result.body.content, /World text — here/);
@@ -105,7 +108,7 @@ test('a normal HTML page is reduced to marked text with a real title and status'
 test('plain text bodies are normalized, not HTML-stripped', async () => {
     const fetchImpl = async () => fakeResponse({ contentType: 'text/plain', chunks: [new TextEncoder().encode('a  b\r\n\r\n\r\nc\n')] });
     const result = await fallbackFetchDirect('https://example.com/robots.txt', { fetchImpl, resolver: publicResolver });
-    assert.equal(result.body.content, `${FALLBACK_MARKER}\n\na b\n\nc`);
+    assert.equal(result.body.content, `${buildFallbackMarker({ statusCode: 200, hasBody: true })}\n\na b\n\nc`);
 });
 
 test('the exact fallback headers are sent, and nothing else', async () => {
@@ -305,11 +308,58 @@ test('an over-the-cap Content-Length surfaces as a size error, not a crash', asy
 });
 
 test('buildFallbackContent keeps the marker first and tolerates an empty body', () => {
-    assert.equal(buildFallbackContent('', 'text/html'), FALLBACK_MARKER);
+    const empty = buildFallbackContent('', 'text/html');
+    assert.equal(empty.startsWith(FALLBACK_MARKER), true);
+    assert.equal(empty, buildFallbackMarker({ statusCode: undefined, hasBody: false }));
+    assert.match(empty, /未返回任何正文内容/, 'an empty body must be named, never left as a bare marker');
     const withTitle = buildFallbackContent('<title>Only a title</title>', 'text/html');
-    assert.equal(withTitle, `${FALLBACK_MARKER}\n[title] Only a title`);
+    assert.equal(withTitle.split('\n')[0], buildFallbackMarker({ statusCode: undefined, hasBody: true }));
+    assert.equal(withTitle.split('\n')[1], '[title] Only a title');
     const noTitle = buildFallbackContent('<p>body only</p>', 'text/html');
-    assert.equal(noTitle, `${FALLBACK_MARKER}\n\nbody only`);
+    assert.equal(noTitle, `${buildFallbackMarker({ statusCode: undefined, hasBody: true })}\n\nbody only`);
+});
+
+test('the marker copy states the real direct-fetch status and the empty-body case', async () => {
+    const blocked = await fallbackFetchDirect('https://example.com/blocked', {
+        fetchImpl: async () => fakeResponse({ status: 403, chunks: [new TextEncoder().encode('<title>Just a moment</title><p>challenge</p>')] }),
+        resolver: publicResolver,
+    });
+    const blockedLine = blocked.body.content.split('\n')[0];
+    assert.equal(blocked.statusCode, 403, 'a non-2xx stays a result, not an error');
+    assert.equal(blockedLine.startsWith(FALLBACK_MARKER), true);
+    assert.match(blockedLine, /上游抽取失败（HTTP 422）/);
+    assert.match(blockedLine, /直抓返回 HTTP 403（站点可能拒绝匿名访问）/);
+    assert.match(blockedLine, /以下为站点返回的原始内容，未经 AnySearch 清洗/);
+
+    const empty = await fallbackFetchDirect('https://example.com/blocked-empty', {
+        fetchImpl: async () => fakeResponse({ status: 403, chunks: [] }),
+        resolver: publicResolver,
+    });
+    const emptyLine = empty.body.content.split('\n')[0];
+    assert.equal(empty.body.content, emptyLine, 'an empty body adds nothing after the marker');
+    assert.match(emptyLine, /直抓返回 HTTP 403 且站点未返回任何正文内容/);
+    assert.match(emptyLine, /建议换来源/);
+    assert.doesNotMatch(emptyLine, /以下为站点返回的原始内容/, 'an empty body must not promise content it does not have');
+
+    const degraded = await fallbackFetchDirect('https://example.com/other', {
+        fetchImpl: async () => fakeResponse({ status: 403, chunks: [new TextEncoder().encode('<p>x</p>')] }),
+        resolver: publicResolver,
+        upstreamHttpStatus: 503,
+    });
+    assert.match(degraded.body.content.split('\n')[0], /上游错误（HTTP 503）/, 'a non-extract failure is worded as an upstream error, with its real status');
+
+    const withReason = await fallbackFetchDirect('https://example.com/reason', {
+        fetchImpl: async () => fakeResponse({ status: 200, chunks: [new TextEncoder().encode('<p>x</p>')] }),
+        resolver: publicResolver,
+        upstreamReason: '上游错误（HTTP 429 rate limit）：too many requests',
+    });
+    assert.equal(withReason.body.content.split('\n')[0], '[anysearch-fallback] 上游错误（HTTP 429 rate limit）：too many requests；直抓成功（HTTP 200），以下为未经 AnySearch 清洗的直抓原文。');
+
+    const emptyTwoHundred = await fallbackFetchDirect('https://example.com/blank', {
+        fetchImpl: async () => fakeResponse({ status: 200, chunks: [] }),
+        resolver: publicResolver,
+    });
+    assert.match(emptyTwoHundred.body.content.split('\n')[0], /；直抓成功（HTTP 200）但站点未返回任何正文内容/, 'a blank 2xx is spelled out too');
 });
 
 test('a resolver failure is reported as a refused URL, and a transport failure as a provider error', async () => {
